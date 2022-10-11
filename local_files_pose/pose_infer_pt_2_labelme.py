@@ -11,18 +11,22 @@ from tqdm import tqdm
 
 import sys
 sys.path.insert(0, "../")
+import cv2
+
+from utils.datasets import letterbox
+import shutil
 
 from models.experimental import attempt_load
 from utils.datasets import create_dataloader
 from utils.general import coco80_to_coco91_class, check_dataset, check_file, check_img_size, check_requirements, \
     box_iou, non_max_suppression, scale_coords, xyxy2xywh, xywh2xyxy, set_logging, increment_path, colorstr
 from utils.metrics import ap_per_class, ConfusionMatrix
-from utils.plots import plot_images, output_to_target, plot_study_txt
+# from utils.plots import plot_images, output_to_target, plot_study_txt
 from utils.torch_utils import select_device, time_synchronized
-import cv2
 
-from utils.datasets import letterbox
-import shutil
+import matplotlib.pyplot as plt
+import copy
+from local_utils import output_to_raw_target, draw_box_kpts, save_labelme_json
 
 
 def pose_infer_imgs(opt):
@@ -60,18 +64,19 @@ def pose_infer_imgs(opt):
 
     img_names = [name for name in os.listdir(src_root) if name.split('.')[-1] in ['png', 'jpg']]
     for img_name in tqdm(img_names):
-        # img_name = "1555.992492.png"
+        # img_name = "image_23_1661767190924.png"
+        print(img_name)
         img_path = os.path.join(src_root, img_name)
         dst_img_path = os.path.join(dst_root, img_name.replace(".png", ".jpg"))
-        # f = "images.jpg"
-        f = dst_img_path
+
 
         # img_path = "/userdata/liyj/data/test_data/pose/2022-09-09-15-41-06/image_rect_color/image_37_1662709272543.png"
         img0 = cv2.imread(img_path)  # BGR
-        img0 = img0[:, :1920, :]
+        # img0 = img0[:, :1920, :]
 
         stride = int(model.stride.max())  # model stride
-        img = letterbox(img0, imgsz, stride=stride, auto=False)[0]
+        # img = letterbox(img0, imgsz, stride=stride, auto=False)[0]
+        img, ratio, (dw, dh) = letterbox(img0, imgsz, stride=stride, auto=False)
 
         # Convert
         img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
@@ -94,11 +99,20 @@ def pose_infer_imgs(opt):
             kpt_label = True
             out = non_max_suppression(out, conf_thres, iou_thres, labels=lb, multi_label=True, agnostic=single_cls,
                                       kpt_label=kpt_label, nc=model.yaml['nc'], nkpt=model.yaml['nkpt'])
-            paths = None
-            names = None
-            # f = "/userdata/liyj/data/test_data/pose/2022-09-09-15-41-06/images.jpg"
 
-            plot_images(img, output_to_target(out), paths, f, names, kpt_label=kpt_label, steps=3, orig_shape=None)
+            # show targets result
+            assert len(out) == 1, "len(out) == 1"
+            targets = output_to_raw_target(out[0], ratio, dw, dh)
+            img_show = copy.deepcopy(img0)
+            img_show = draw_box_kpts(img_show, targets)
+
+            # save label files
+            save_labelme_json(dst_img_path, img0, targets)
+
+
+        # plt.imshow(img_show)
+        # plt.show()
+        # exit(1)
 
 
 if __name__ == "__main__":
@@ -133,6 +147,7 @@ if __name__ == "__main__":
     # opt.save_json_kpt |= opt.data.endswith('coco_kpts.yaml')
     # opt.data = check_file(opt.data)  # check file
     print(opt)
+
 
     pose_infer_imgs(opt)
     print("End Proc...")
